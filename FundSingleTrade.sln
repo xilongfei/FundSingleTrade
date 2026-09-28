@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FundSingleTrade.Shell", "FundSingleTrade.Shell\FundSingleTrade.Shell.csproj", "{BECC77D1-A767-43A6-9480-515F2EED9D72}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BECC77D1-A767-43A6-9480-515F2EED9D72}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BECC77D1-A767-43A6-9480-515F2EED9D72}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BECC77D1-A767-43A6-9480-515F2EED9D72}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BECC77D1-A767-43A6-9480-515F2EED9D72}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

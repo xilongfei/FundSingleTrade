@@ -1,0 +1,579 @@
+<Window
+    Background="{DynamicResource WindowBackground}"
+    Foreground="{DynamicResource PrimaryText}"
+    Height="800"
+    MinHeight="680"
+    MinWidth="1080"
+    Style="{StaticResource MaterialDesignWindow}"
+    Title="基金管家"
+    Width="1320"
+    x:Class="FundSingleTrade.Shell.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:local="clr-namespace:FundSingleTrade.Shell"
+    xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+    xmlns:services="clr-namespace:FundSingleTrade.Shell.Services"
+    xmlns:sp="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Window.Resources>
+        <local:DateTextConverter x:Key="DateTextConverter" />
+        <DataTemplate DataType="{x:Type services:ConfirmationDialogModel}">
+            <Border
+                Background="{DynamicResource SurfaceBackground}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Padding="24"
+                Width="420">
+                <StackPanel>
+                    <TextBlock
+                        FontSize="20"
+                        FontWeight="SemiBold"
+                        Foreground="{DynamicResource AccentBrush}"
+                        Text="{Binding Title}" />
+                    <TextBlock
+                        Foreground="{DynamicResource PrimaryText}"
+                        Margin="0,14,0,24"
+                        Text="{Binding Message}"
+                        TextWrapping="Wrap" />
+                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                        <Button
+                            Background="Transparent"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            Command="{x:Static materialDesign:DialogHost.CloseDialogCommand}"
+                            CommandParameter="False"
+                            Content="取消"
+                            Foreground="{DynamicResource PrimaryText}" />
+                        <Button
+                            Background="{DynamicResource AccentBrush}"
+                            Command="{x:Static materialDesign:DialogHost.CloseDialogCommand}"
+                            CommandParameter="True"
+                            Content="确定"
+                            Foreground="White" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryText}" />
+        </Style>
+        <Style BasedOn="{StaticResource MaterialDesignRaisedButton}" TargetType="Button">
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="Padding" Value="15,8" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style
+            BasedOn="{StaticResource {x:Type Button}}"
+            TargetType="Button"
+            x:Key="DeleteButton">
+            <Setter Property="Background" Value="#DC2626" />
+        </Style>
+        <Style BasedOn="{StaticResource MaterialDesignOutlinedTextBox}" TargetType="TextBox">
+            <Setter Property="Margin" Value="0,4,8,4" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Background" Value="{DynamicResource InputBackground}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryText}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+        </Style>
+        <Style BasedOn="{StaticResource MaterialDesignOutlinedComboBox}" TargetType="ComboBox">
+            <Setter Property="Margin" Value="0,4,8,4" />
+            <Setter Property="Padding" Value="5" />
+            <Setter Property="Background" Value="{DynamicResource InputBackground}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryText}" />
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border
+                            Background="{DynamicResource CardHover}"
+                            CornerRadius="6"
+                            Margin="0,3"
+                            x:Name="SelectionBackground">
+                            <ContentPresenter
+                                Content="{TemplateBinding Content}"
+                                ContentStringFormat="{TemplateBinding ContentStringFormat}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" TargetName="SelectionBackground" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" TargetName="SelectionBackground" Value="0.88" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style BasedOn="{StaticResource MaterialDesignDatePicker}" TargetType="DatePicker">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryText}" />
+            <Setter Property="Background" Value="{DynamicResource InputBackground}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+        </Style>
+    </Window.Resources>
+    <materialDesign:DialogHost Identifier="RootDialog">
+        <Grid Margin="28">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <!--  主题和强调色选择后立即应用，并自动保存到本地。  -->
+            <DockPanel Margin="0,0,0,24">
+                <StackPanel
+                    DockPanel.Dock="Right"
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center">
+                    <StackPanel Margin="0,0,8,0">
+                        <TextBlock
+                            FontSize="11"
+                            Foreground="{DynamicResource SecondaryText}"
+                            Text="界面主题" />
+                        <ComboBox
+                            ItemsSource="{Binding ThemeModes}"
+                            SelectedItem="{Binding ThemeMode}"
+                            Width="112" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,8,0">
+                        <TextBlock
+                            FontSize="11"
+                            Foreground="{DynamicResource SecondaryText}"
+                            Text="强调色" />
+                        <ComboBox
+                            DisplayMemberPath="Name"
+                            ItemsSource="{Binding AccentChoices}"
+                            SelectedValue="{Binding AccentColor}"
+                            SelectedValuePath="Hex"
+                            Width="100" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock
+                        FontSize="28"
+                        FontWeight="Bold"
+                        Text="基金管家" />
+                    <TextBlock
+                        FontSize="13"
+                        Foreground="{DynamicResource SecondaryText}"
+                        Margin="0,3,0,0"
+                        Text="本地记录交易，联网同步历史净值" />
+                </StackPanel>
+            </DockPanel>
+            <Border
+                Background="{DynamicResource SurfaceBackground}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Grid.Row="1"
+                Margin="0,0,0,18"
+                Padding="16">
+                <DockPanel LastChildFill="False">
+                    <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Text="添加基金" />
+                        <TextBlock
+                            Foreground="{DynamicResource SecondaryText}"
+                            Margin="0,4,12,0"
+                            Text="输入 6 位基金代码，基金名称会自动获取。" />
+                    </StackPanel>
+                    <StackPanel
+                        DockPanel.Dock="Right"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                        <StackPanel>
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{DynamicResource SecondaryText}"
+                                Text="基金代码" />
+                            <TextBox
+                                Margin="0,4,8,0"
+                                Text="{Binding NewFundCode, UpdateSourceTrigger=PropertyChanged}"
+                                Width="180" />
+                        </StackPanel>
+                        <Button
+                            Command="{Binding AddFundCommand}"
+                            Content="添加基金"
+                            Margin="0,18,0,0"
+                            VerticalAlignment="Center" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="310" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border
+                    Background="{DynamicResource SurfaceBackground}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="14">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                            <DockPanel>
+                                <Button
+                                    Command="{Binding DeleteSelectedFundCommand}"
+                                    Content="删除选中基金"
+                                    DockPanel.Dock="Right"
+                                    Margin="4,0,0,0"
+                                    Padding="8,5"
+                                    Style="{StaticResource DeleteButton}" />
+                                <TextBlock
+                                    FontSize="18"
+                                    FontWeight="SemiBold"
+                                    Text="我的基金"
+                                    VerticalAlignment="Center" />
+                            </DockPanel>
+                            <TextBlock
+                                Foreground="{DynamicResource SecondaryText}"
+                                Margin="0,3,0,0"
+                                Text="点击基金查看详情、曲线和交易记录" />
+                        </StackPanel>
+                        <ListBox
+                            ItemsSource="{Binding Funds}"
+                            ScrollViewer.VerticalScrollBarVisibility="Auto"
+                            SelectedItem="{Binding SelectedFund}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Height="88">
+                                        <StackPanel Margin="12" VerticalAlignment="Center">
+                                            <TextBlock
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource SecondaryText}"
+                                                Text="{Binding DisplayName}"
+                                                TextTrimming="CharacterEllipsis"
+                                                TextWrapping="NoWrap"
+                                                x:Name="FundNameText" />
+                                            <TextBlock
+                                                FontSize="11"
+                                                Foreground="{DynamicResource SecondaryText}"
+                                                Margin="0,3,0,0"
+                                                Text="{Binding PeriodText, StringFormat=区间：{0}}"
+                                                x:Name="FundPeriodText" />
+                                            <TextBlock
+                                                FontSize="15"
+                                                Foreground="{Binding ChangeBrush}"
+                                                Margin="0,3,0,0"
+                                                Text="{Binding ChangeText}"
+                                                x:Name="FundChangeText" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                            <Setter Property="Foreground" TargetName="FundNameText" Value="White" />
+                                            <Setter Property="Foreground" TargetName="FundPeriodText" Value="#E6FFFFFF" />
+                                            <Setter Property="Foreground" TargetName="FundChangeText" Value="White" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </Border>
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,14">
+                        <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{DynamicResource SecondaryText}"
+                                HorizontalAlignment="Right"
+                                Text="查看区间（基金列表涨跌幅按此计算）" />
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                                <DatePicker
+                                    HorizontalContentAlignment="Center"
+                                    SelectedDate="{Binding PeriodStart, UpdateSourceTrigger=PropertyChanged}"
+                                    SelectedDateFormat="Short"
+                                    VerticalContentAlignment="Center"
+                                    Width="120"
+                                    materialDesign:HintAssist.Hint="起始日期" />
+                                <TextBlock
+                                    Foreground="{DynamicResource SecondaryText}"
+                                    Margin="8,0,8,0"
+                                    Text="至"
+                                    VerticalAlignment="Center" />
+                                <DatePicker
+                                    HorizontalContentAlignment="Center"
+                                    SelectedDate="{Binding PeriodEnd, UpdateSourceTrigger=PropertyChanged}"
+                                    SelectedDateFormat="Short"
+                                    VerticalContentAlignment="Center"
+                                    Width="120"
+                                    materialDesign:HintAssist.Hint="结束日期" />
+                                <Button
+                                    Command="{Binding RefreshSelectedCommand}"
+                                    Content="同步基金"
+                                    Height="42"
+                                    Margin="4,4,0,4"
+                                    VerticalAlignment="Bottom" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock
+                                FontSize="24"
+                                FontWeight="Bold"
+                                Text="{Binding SelectedFund.DisplayName}" />
+                            <TextBlock
+                                Foreground="{DynamicResource SecondaryText}"
+                                Margin="0,3,0,0"
+                                Text="{Binding ValuationDateText, StringFormat=净值更新至：{0}}" />
+                        </StackPanel>
+                    </DockPanel>
+                    <Border
+                        Background="{DynamicResource SurfaceBackground}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Grid.Row="1"
+                        Margin="0,0,0,16"
+                        Padding="18">
+                        <StackPanel>
+                            <TextBlock
+                                FontSize="17"
+                                FontWeight="SemiBold"
+                                Text="历史净值走势" />
+                            <TextBlock
+                                Foreground="{DynamicResource SecondaryText}"
+                                Margin="0,3,0,8"
+                                Text="红色为上涨、绿色为下跌；悬停数据点可查看当日涨幅与区间累计涨幅" />
+                            <Grid
+                                ClipToBounds="True"
+                                Height="245"
+                                x:Name="ChartContainer">
+                                <!--  ScottPlot 负责坐标轴、折线、逐日数据点和缩放布局。  -->
+                                <sp:WpfPlot x:Name="QuotePlot" />
+                                <Canvas IsHitTestVisible="False" x:Name="ChartOverlay">
+                                    <Border
+                                        Background="{DynamicResource SurfaceBackground}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        IsHitTestVisible="False"
+                                        Padding="10,7"
+                                        Panel.ZIndex="10"
+                                        Visibility="Collapsed"
+                                        x:Name="ChartHoverCard">
+                                        <TextBlock FontSize="12" x:Name="ChartHoverText" />
+                                    </Border>
+                                </Canvas>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                    <Border
+                        Background="{DynamicResource SurfaceBackground}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Grid.Row="2"
+                        Padding="18">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <DockPanel Grid.Row="0" LastChildFill="False">
+                                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                    <TextBlock
+                                        FontSize="17"
+                                        FontWeight="SemiBold"
+                                        Text="添加一笔交易" />
+                                    <TextBlock
+                                        Foreground="{DynamicResource SecondaryText}"
+                                        Margin="0,3,8,0"
+                                        Text="按交易日净值计算份额。" />
+                                </StackPanel>
+                                <StackPanel
+                                    DockPanel.Dock="Right"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                                    <StackPanel VerticalAlignment="Bottom">
+                                        <DatePicker
+                                            Height="42"
+                                            HorizontalContentAlignment="Center"
+                                            SelectedDate="{Binding NewTradeDate, UpdateSourceTrigger=PropertyChanged}"
+                                            SelectedDateFormat="Short"
+                                            VerticalContentAlignment="Center"
+                                            Width="120"
+                                            materialDesign:HintAssist.Hint="交易日期" />
+                                    </StackPanel>
+                                    <StackPanel Margin="10,0" VerticalAlignment="Bottom">
+                                        <TextBox
+                                            Height="42"
+                                            Text="{Binding NewTradeAmount, UpdateSourceTrigger=PropertyChanged}"
+                                            VerticalContentAlignment="Center"
+                                            Width="150"
+                                            materialDesign:HintAssist.Hint="交易金额" />
+                                    </StackPanel>
+                                    <Button
+                                        Command="{Binding AddTradeCommand}"
+                                        Content="保存交易记录"
+                                        Height="42"
+                                        Margin="0,4,0,4"
+                                        VerticalAlignment="Bottom" />
+                                </StackPanel>
+                            </DockPanel>
+                            <Grid Grid.Row="2" Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid Background="{DynamicResource CardHover}" Height="34">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Grid.Column="0"
+                                        Margin="6,0"
+                                        Text="买入日期"
+                                        VerticalAlignment="Center" />
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Grid.Column="1"
+                                        Margin="6,0"
+                                        Text="投入金额"
+                                        VerticalAlignment="Center" />
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Grid.Column="2"
+                                        Margin="6,0"
+                                        Text="买入净值"
+                                        VerticalAlignment="Center" />
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Grid.Column="3"
+                                        Margin="6,0"
+                                        Text="估值日期"
+                                        VerticalAlignment="Center" />
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Grid.Column="4"
+                                        Margin="6,0"
+                                        Text="持有涨幅"
+                                        VerticalAlignment="Center" />
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Grid.Column="5"
+                                        Margin="6,0"
+                                        Text="持有盈亏"
+                                        VerticalAlignment="Center" />
+                                    <TextBlock
+                                        FontWeight="SemiBold"
+                                        Grid.Column="6"
+                                        Margin="6,0"
+                                        Text="操作"
+                                        VerticalAlignment="Center" />
+                                </Grid>
+                                <ScrollViewer
+                                    Grid.Row="1"
+                                    HorizontalScrollBarVisibility="Disabled"
+                                    VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding SelectedTrades}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid MinHeight="42">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock
+                                                        Grid.Column="0"
+                                                        Margin="6,0"
+                                                        Text="{Binding TradeDate, StringFormat=yyyy-MM-dd}"
+                                                        VerticalAlignment="Center" />
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        Margin="6,0"
+                                                        Text="{Binding Amount, StringFormat=N2}"
+                                                        VerticalAlignment="Center" />
+                                                    <TextBlock
+                                                        Grid.Column="2"
+                                                        Margin="6,0"
+                                                        Text="{Binding UnitPrice, StringFormat=N4}"
+                                                        VerticalAlignment="Center" />
+                                                    <TextBlock
+                                                        Grid.Column="3"
+                                                        Margin="6,0"
+                                                        Text="{Binding ValuationText}"
+                                                        VerticalAlignment="Center" />
+                                                    <TextBlock
+                                                        Grid.Column="4"
+                                                        Margin="6,0"
+                                                        Text="{Binding ReturnText}"
+                                                        VerticalAlignment="Center" />
+                                                    <TextBlock
+                                                        Grid.Column="5"
+                                                        Margin="6,0"
+                                                        Text="{Binding ProfitText}"
+                                                        VerticalAlignment="Center" />
+                                                    <Button
+                                                        Background="#C62828"
+                                                        BorderBrush="#8E0000"
+                                                        BorderThickness="1"
+                                                        Command="{Binding DataContext.DeleteTradeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"
+                                                        Content="删 除"
+                                                        FontSize="13"
+                                                        FontWeight="Bold"
+                                                        Foreground="White"
+                                                        Grid.Column="6"
+                                                        Height="32"
+                                                        Margin="4,4,8,4"
+                                                        MinWidth="82"
+                                                        Padding="8,2" />
+                                                    <Border
+                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                        BorderThickness="0,0,0,1"
+                                                        Grid.ColumnSpan="7"
+                                                        VerticalAlignment="Bottom" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+            <TextBlock
+                Foreground="{DynamicResource SecondaryText}"
+                Grid.Row="3"
+                Margin="2,12,0,0"
+                Text="{Binding StatusMessage}" />
+        </Grid>
+    </materialDesign:DialogHost>
+</Window>
