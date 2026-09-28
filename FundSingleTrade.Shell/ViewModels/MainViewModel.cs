@@ -150,6 +150,8 @@ public partial class MainViewModel : ObservableObject
         SelectedTrades.Clear();
         OnPropertyChanged(nameof(ValuationDateText));
         if (value is null) return;
+        PeriodStart = value.PeriodStart;
+        PeriodEnd = value.PeriodEnd;
         foreach (var quote in value.Fund.Quotes.OrderBy(x => x.QuoteDate))
             SelectedQuotes.Add(quote);
         UpdateTradeSummaries(value.Fund);
@@ -345,36 +347,48 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task LoadAsync()
     {
+        var previousRanges = Funds.ToDictionary(
+            item => item.Fund.Id,
+            item => (item.PeriodStart, item.PeriodEnd));
+        var selectedFundId = SelectedFund?.Fund.Id;
         await using var db = new FundDbContext();
         await db.Database.EnsureCreatedAsync();
         var funds = await db.Funds.Include(x => x.Quotes).Include(x => x.Trades).Include(x => x.Category)
             .OrderBy(x => x.Name).ToListAsync();
+        SelectedFund = null;
         Funds.Clear();
         foreach (var fund in funds)
         {
-            var item = new FundListItem { Fund = fund, PeriodStart = PeriodStart, PeriodEnd = PeriodEnd };
-            item.PeriodChange = CalculateChange(fund.Quotes, PeriodStart, PeriodEnd);
+            var range = previousRanges.TryGetValue(fund.Id, out var previousRange)
+                ? previousRange
+                : (DateTime.Today.AddMonths(-1), DateTime.Today.AddDays(-1));
+            var item = new FundListItem
+            {
+                Fund = fund,
+                PeriodStart = range.Item1,
+                PeriodEnd = range.Item2
+            };
+            item.PeriodChange = CalculateChange(fund.Quotes, item.PeriodStart, item.PeriodEnd);
             Funds.Add(item);
         }
-        if (SelectedFund is null) SelectedFund = Funds.FirstOrDefault();
+        SelectedFund = Funds.FirstOrDefault(item => item.Fund.Id == selectedFundId)
+                       ?? Funds.FirstOrDefault();
     }
 
-    /// <summary>起始日期变化后重新计算区间收益。</summary>
-    partial void OnPeriodStartChanged(DateTime value) => RecalculateChanges();
-    /// <summary>结束日期变化后重新计算区间收益。</summary>
-    partial void OnPeriodEndChanged(DateTime value) => RecalculateChanges();
+    /// <summary>仅更新当前基金的起始日期和区间涨幅。</summary>
+    partial void OnPeriodStartChanged(DateTime value) => RecalculateSelectedFundChange();
+    /// <summary>仅更新当前基金的结束日期和区间涨幅。</summary>
+    partial void OnPeriodEndChanged(DateTime value) => RecalculateSelectedFundChange();
 
-    private void RecalculateChanges()
+    private void RecalculateSelectedFundChange()
     {
-        // 日期范围变化时，同时更新左侧区间涨幅和当前基金的交易估值。
-        foreach (var item in Funds)
-        {
-            item.PeriodChange = CalculateChange(item.Fund.Quotes, PeriodStart, PeriodEnd);
-            item.PeriodStart = PeriodStart;
-            item.PeriodEnd = PeriodEnd;
-        }
-        if (SelectedFund is not null)
-            UpdateTradeSummaries(SelectedFund.Fund);
+        if (SelectedFund is null)
+            return;
+
+        SelectedFund.PeriodStart = PeriodStart;
+        SelectedFund.PeriodEnd = PeriodEnd;
+        SelectedFund.PeriodChange = CalculateChange(
+            SelectedFund.Fund.Quotes, SelectedFund.PeriodStart, SelectedFund.PeriodEnd);
     }
 
     private void UpdateTradeSummaries(Fund fund)
