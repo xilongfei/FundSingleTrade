@@ -95,7 +95,17 @@ dotnet run --project FundSingleTrade.Shell/FundSingleTrade.Shell.csproj
 2. 将 `FundSingleTrade.Shell` 设为启动项目。
 3. 直接运行（F5）即可。
 
-构建产物位于 `FundSingleTrade.Shell/bin/<Configuration>/net8.0-windows/`，可执行文件名为 `基金管理.exe`。
+### 发布为单个 EXE
+
+使用 `SingleFile-win-x64` 发布配置，将 .NET 运行时、项目引用和 SQLite 原生依赖一并打包，无需单独分发 DLL：
+
+```bash
+dotnet publish FundSingleTrade.Shell/FundSingleTrade.Shell.csproj -p:PublishProfile=SingleFile-win-x64
+```
+
+发布产物位于 `FundSingleTrade.Shell/bin/Release/net8.0-windows/win-x64/publish/基金管理.exe`。此发布包面向 Windows x64，目标电脑无需预装 .NET 运行时；SQLite 原生组件会在程序运行时自动解压到系统临时目录。
+
+普通 `dotnet build` 仍用于本机开发调试，输出目录会包含常规依赖文件，不作为单文件发布包。
 
 ---
 
