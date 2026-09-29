@@ -321,12 +321,6 @@
                                     VerticalContentAlignment="Center"
                                     Width="120"
                                     materialDesign:HintAssist.Hint="结束日期" />
-                                <Button
-                                    Command="{Binding RefreshSelectedCommand}"
-                                    Content="同步基金"
-                                    Height="42"
-                                    Margin="4,4,0,4"
-                                    VerticalAlignment="Bottom" />
                             </StackPanel>
                         </StackPanel>
                         <StackPanel VerticalAlignment="Center">

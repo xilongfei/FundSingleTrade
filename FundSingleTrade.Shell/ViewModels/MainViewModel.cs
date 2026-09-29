@@ -59,6 +59,8 @@ public partial class MainViewModel : ObservableObject
     private readonly IConfirmationDialogService _confirmationDialogService;
     private readonly UserPreferences _preferences;
     private readonly SemaphoreSlim _preferencesSaveLock = new(1, 1);
+    private bool _isReloadingFunds;
+    private bool _suppressSelectionSync;
 
     public ObservableCollection<FundListItem> Funds { get; } = new();
     public ObservableCollection<FundQuote> SelectedQuotes { get; } = new();
@@ -86,7 +88,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string themeMode;
     [ObservableProperty] private string accentColor;
 
-    public string ValuationDateText => SelectedQuotes.Where(x => x.QuoteDate.Date <= DateTime.Today)
+    public string ValuationDateText => SelectedQuotes.Where(x => x.QuoteDate.Date <= DateTime.Today.AddDays(-1))
         .OrderByDescending(x => x.QuoteDate).Select(x => x.QuoteDate.ToString("yyyy-MM-dd")).FirstOrDefault() ?? "暂无净值";
 
     public MainViewModel(IConfirmationDialogService confirmationDialogService)
@@ -97,7 +99,7 @@ public partial class MainViewModel : ObservableObject
         themeMode = _preferences.ThemeMode;
         accentColor = _preferences.AccentColor;
         SelectedQuotes.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ValuationDateText));
-        _ = LoadAsync();
+        _ = InitializeAsync();
     }
 
     /// <summary>主题选择变化时立即更新界面并保存偏好。</summary>
@@ -155,6 +157,16 @@ public partial class MainViewModel : ObservableObject
         foreach (var quote in value.Fund.Quotes.OrderBy(x => x.QuoteDate))
             SelectedQuotes.Add(quote);
         UpdateTradeSummaries(value.Fund);
+        if (!_isReloadingFunds && !_suppressSelectionSync)
+            _ = EnsureSelectedFundCurrentAsync(value);
+    }
+
+    /// <summary>启动时只检查并同步当前选中的基金，不批量请求其他基金。</summary>
+    private async Task InitializeAsync()
+    {
+        await LoadAsync();
+        if (SelectedFund is not null)
+            await EnsureSelectedFundCurrentAsync(SelectedFund);
     }
 
     /// <summary>验证基金代码并创建记录，随后自动同步基金名称和行情。</summary>
@@ -182,25 +194,48 @@ public partial class MainViewModel : ObservableObject
         await db.SaveChangesAsync();
         NewFundCode = string.Empty;
         await LoadAsync();
-        SelectedFund = Funds.FirstOrDefault(x => x.Fund.Id == fund.Id);
-        await RefreshSelectedAsync();
+        _suppressSelectionSync = true;
+        try
+        {
+            SelectedFund = Funds.FirstOrDefault(x => x.Fund.Id == fund.Id);
+        }
+        finally
+        {
+            _suppressSelectionSync = false;
+        }
+        if (SelectedFund is not null)
+            await SyncFundAsync(SelectedFund);
     }
 
-    /// <summary>根据选定区间同步行情、更新基金名称并写入 SQLite。</summary>
-    [RelayCommand]
-    private async Task RefreshSelectedAsync()
+    /// <summary>仅当净值落后于昨天且今天尚未同步时自动更新当前基金。</summary>
+    private async Task EnsureSelectedFundCurrentAsync(FundListItem fund)
     {
-        if (SelectedFund is null) { StatusMessage = "请先选择一个基金。"; return; }
-        var selectedId = SelectedFund.Fund.Id;
+        var targetDate = DateTime.Today.AddDays(-1);
+        var latestQuoteDate = fund.Fund.Quotes
+            .Where(quote => quote.QuoteDate.Date <= targetDate)
+            .Select(quote => (DateTime?)quote.QuoteDate.Date)
+            .Max();
+        if (latestQuoteDate >= targetDate ||
+            fund.Fund.LastSyncedAt?.Date == DateTime.Today)
+            return;
+
+        await SyncFundAsync(fund);
+    }
+
+    /// <summary>同步指定基金截至昨天的净值，不触发其他基金的数据请求。</summary>
+    private async Task SyncFundAsync(FundListItem selectedFund)
+    {
+        var selectedId = selectedFund.Fund.Id;
+        var targetDate = DateTime.Today.AddDays(-1);
         IsBusy = true;
         try
         {
-            var fundName = await _dataService.GetFundNameAsync(SelectedFund.Fund.Code, CancellationToken.None);
+            var fundName = await _dataService.GetFundNameAsync(selectedFund.Fund.Code, CancellationToken.None);
             // 多取区间开始日前的净值，便于计算区间首日涨幅和非交易日边界。
-            var fetchStart = PeriodStart.Date.AddDays(-15);
-            var earliestTrade = SelectedFund.Fund.Trades.Select(x => x.TradeDate.Date).DefaultIfEmpty(fetchStart).Min();
+            var fetchStart = selectedFund.PeriodStart.Date.AddDays(-15);
+            var earliestTrade = selectedFund.Fund.Trades.Select(x => x.TradeDate.Date).DefaultIfEmpty(fetchStart).Min();
             fetchStart = earliestTrade < fetchStart ? earliestTrade.AddDays(-15) : fetchStart;
-            var remote = await _dataService.GetQuotesAsync(SelectedFund.Fund.Code, fetchStart, DateTime.Today, CancellationToken.None);
+            var remote = await _dataService.GetQuotesAsync(selectedFund.Fund.Code, fetchStart, targetDate, CancellationToken.None);
             await using var db = new FundDbContext();
             var fund = await db.Funds.Include(x => x.Quotes).Include(x => x.Trades)
                 .SingleAsync(x => x.Id == selectedId);
@@ -220,7 +255,6 @@ public partial class MainViewModel : ObservableObject
             fund.LastSyncedAt = DateTime.Now;
             await db.SaveChangesAsync();
             await LoadAsync();
-            SelectedFund = Funds.First(x => x.Fund.Id == fund.Id);
             OnPropertyChanged(nameof(ValuationDateText));
             StatusMessage = $"已同步“{fund.Name}”的名称和 {remote.Count} 条净值记录。";
         }
@@ -308,7 +342,8 @@ public partial class MainViewModel : ObservableObject
         await LoadAsync();
         SelectedFund = Funds.First(x => x.Fund.Id == selectedId);
         StatusMessage = "交易记录已保存，正在更新最新估值。";
-        await RefreshSelectedAsync();
+        if (SelectedFund is not null)
+            await SyncFundAsync(SelectedFund);
     }
 
     /// <summary>删除选中的单笔交易并刷新基金详情。</summary>
@@ -351,28 +386,36 @@ public partial class MainViewModel : ObservableObject
             item => item.Fund.Id,
             item => (item.PeriodStart, item.PeriodEnd));
         var selectedFundId = SelectedFund?.Fund.Id;
-        await using var db = new FundDbContext();
-        await db.Database.EnsureCreatedAsync();
-        var funds = await db.Funds.Include(x => x.Quotes).Include(x => x.Trades).Include(x => x.Category)
-            .OrderBy(x => x.Name).ToListAsync();
-        SelectedFund = null;
-        Funds.Clear();
-        foreach (var fund in funds)
+        _isReloadingFunds = true;
+        try
         {
-            var range = previousRanges.TryGetValue(fund.Id, out var previousRange)
-                ? previousRange
-                : (DateTime.Today.AddMonths(-1), DateTime.Today.AddDays(-1));
-            var item = new FundListItem
+            await using var db = new FundDbContext();
+            await db.Database.EnsureCreatedAsync();
+            var funds = await db.Funds.Include(x => x.Quotes).Include(x => x.Trades).Include(x => x.Category)
+                .OrderBy(x => x.Name).ToListAsync();
+            SelectedFund = null;
+            Funds.Clear();
+            foreach (var fund in funds)
             {
-                Fund = fund,
-                PeriodStart = range.Item1,
-                PeriodEnd = range.Item2
-            };
-            item.PeriodChange = CalculateChange(fund.Quotes, item.PeriodStart, item.PeriodEnd);
-            Funds.Add(item);
+                var range = previousRanges.TryGetValue(fund.Id, out var previousRange)
+                    ? previousRange
+                    : (DateTime.Today.AddMonths(-1), DateTime.Today.AddDays(-1));
+                var item = new FundListItem
+                {
+                    Fund = fund,
+                    PeriodStart = range.Item1,
+                    PeriodEnd = range.Item2
+                };
+                item.PeriodChange = CalculateChange(fund.Quotes, item.PeriodStart, item.PeriodEnd);
+                Funds.Add(item);
+            }
+            SelectedFund = Funds.FirstOrDefault(item => item.Fund.Id == selectedFundId)
+                           ?? Funds.FirstOrDefault();
         }
-        SelectedFund = Funds.FirstOrDefault(item => item.Fund.Id == selectedFundId)
-                       ?? Funds.FirstOrDefault();
+        finally
+        {
+            _isReloadingFunds = false;
+        }
     }
 
     /// <summary>仅更新当前基金的起始日期和区间涨幅。</summary>
