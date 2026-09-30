@@ -61,6 +61,8 @@ public partial class MainViewModel : ObservableObject
     private readonly SemaphoreSlim _preferencesSaveLock = new(1, 1);
     private bool _isReloadingFunds;
     private bool _suppressSelectionSync;
+    private bool _suppressPeriodRangeSync;
+    private readonly HashSet<(int FundId, DateTime Start, DateTime End, DateTime SyncDate)> _completedHistoricalSyncs = [];
 
     public ObservableCollection<FundListItem> Funds { get; } = new();
     public ObservableCollection<FundQuote> SelectedQuotes { get; } = new();
@@ -152,8 +154,16 @@ public partial class MainViewModel : ObservableObject
         SelectedTrades.Clear();
         OnPropertyChanged(nameof(ValuationDateText));
         if (value is null) return;
-        PeriodStart = value.PeriodStart;
-        PeriodEnd = value.PeriodEnd;
+        _suppressPeriodRangeSync = true;
+        try
+        {
+            PeriodStart = value.PeriodStart;
+            PeriodEnd = value.PeriodEnd;
+        }
+        finally
+        {
+            _suppressPeriodRangeSync = false;
+        }
         foreach (var quote in value.Fund.Quotes.OrderBy(x => x.QuoteDate))
             SelectedQuotes.Add(quote);
         UpdateTradeSummaries(value.Fund);
@@ -210,20 +220,37 @@ public partial class MainViewModel : ObservableObject
     /// <summary>仅当净值落后于昨天且今天尚未同步时自动更新当前基金。</summary>
     private async Task EnsureSelectedFundCurrentAsync(FundListItem fund)
     {
-        var targetDate = DateTime.Today.AddDays(-1);
-        var latestQuoteDate = fund.Fund.Quotes
-            .Where(quote => quote.QuoteDate.Date <= targetDate)
-            .Select(quote => (DateTime?)quote.QuoteDate.Date)
-            .Max();
-        if (latestQuoteDate >= targetDate ||
-            fund.Fund.LastSyncedAt?.Date == DateTime.Today)
+        if (IsBusy)
             return;
 
-        await SyncFundAsync(fund);
+        var targetDate = DateTime.Today.AddDays(-1);
+        var quoteDates = fund.Fund.Quotes
+            .Select(quote => quote.QuoteDate.Date)
+            .ToArray();
+        var latestQuoteDate = quoteDates
+            .Where(date => date <= targetDate)
+            .Select(date => (DateTime?)date)
+            .Max();
+        var oldestQuoteDate = quoteDates.DefaultIfEmpty(DateTime.MaxValue).Min();
+        var rangeNeedsHistoricalData = quoteDates.Length == 0 ||
+                                       fund.PeriodStart.Date < oldestQuoteDate ||
+                                       fund.PeriodEnd.Date < oldestQuoteDate;
+        var needsLatestData = latestQuoteDate < targetDate;
+        var syncKey = (fund.Fund.Id, fund.PeriodStart.Date, fund.PeriodEnd.Date, DateTime.Today);
+
+        if (!rangeNeedsHistoricalData &&
+            (!needsLatestData || fund.Fund.LastSyncedAt?.Date == DateTime.Today))
+            return;
+
+        if (rangeNeedsHistoricalData && _completedHistoricalSyncs.Contains(syncKey))
+            return;
+
+        if (await SyncFundAsync(fund) && rangeNeedsHistoricalData)
+            _completedHistoricalSyncs.Add(syncKey);
     }
 
     /// <summary>同步指定基金截至昨天的净值，不触发其他基金的数据请求。</summary>
-    private async Task SyncFundAsync(FundListItem selectedFund)
+    private async Task<bool> SyncFundAsync(FundListItem selectedFund)
     {
         var selectedId = selectedFund.Fund.Id;
         var targetDate = DateTime.Today.AddDays(-1);
@@ -257,10 +284,12 @@ public partial class MainViewModel : ObservableObject
             await LoadAsync();
             OnPropertyChanged(nameof(ValuationDateText));
             StatusMessage = $"已同步“{fund.Name}”的名称和 {remote.Count} 条净值记录。";
+            return true;
         }
         catch (Exception ex)
         {
             StatusMessage = $"更新失败：{ex.Message}";
+            return false;
         }
         finally { IsBusy = false; }
     }
@@ -328,22 +357,22 @@ public partial class MainViewModel : ObservableObject
             StatusMessage = "无法取得交易日净值，请先检查交易日期或同步基金净值。";
             return;
         }
-        await using var db = new FundDbContext();
-        db.Trades.Add(new Trade
+        var trade = new Trade
         {
             FundId = selectedId,
             TradeDate = NewTradeDate.Date,
             Amount = NewTradeAmount,
             UnitPrice = unitPrice,
             Shares = NewTradeAmount / unitPrice.Value
-        });
+        };
+        await using var db = new FundDbContext();
+        db.Trades.Add(trade);
         await db.SaveChangesAsync();
         NewTradeAmount = 0;
-        await LoadAsync();
-        SelectedFund = Funds.First(x => x.Fund.Id == selectedId);
-        StatusMessage = "交易记录已保存，正在更新最新估值。";
-        if (SelectedFund is not null)
-            await SyncFundAsync(SelectedFund);
+        selectedFund.Trades.Add(trade);
+        if (SelectedFund?.Fund.Id == selectedId)
+            UpdateTradeSummaries(selectedFund);
+        StatusMessage = "交易记录已保存。";
     }
 
     /// <summary>删除选中的单笔交易并刷新基金详情。</summary>
@@ -418,10 +447,17 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>仅更新当前基金的起始日期和区间涨幅。</summary>
-    partial void OnPeriodStartChanged(DateTime value) => RecalculateSelectedFundChange();
-    /// <summary>仅更新当前基金的结束日期和区间涨幅。</summary>
-    partial void OnPeriodEndChanged(DateTime value) => RecalculateSelectedFundChange();
+    /// <summary>仅更新当前基金的起始日期和区间涨幅，并补齐缺失的历史行情。</summary>
+    partial void OnPeriodStartChanged(DateTime value) => OnSelectedPeriodChanged();
+    /// <summary>仅更新当前基金的结束日期和区间涨幅，并补齐缺失的历史行情。</summary>
+    partial void OnPeriodEndChanged(DateTime value) => OnSelectedPeriodChanged();
+
+    private void OnSelectedPeriodChanged()
+    {
+        RecalculateSelectedFundChange();
+        if (!_suppressPeriodRangeSync && SelectedFund is not null)
+            _ = EnsureSelectedFundCurrentAsync(SelectedFund);
+    }
 
     private void RecalculateSelectedFundChange()
     {

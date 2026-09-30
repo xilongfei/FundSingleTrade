@@ -343,10 +343,27 @@
                         Margin="0,0,0,16"
                         Padding="18">
                         <StackPanel>
-                            <TextBlock
-                                FontSize="17"
-                                FontWeight="SemiBold"
-                                Text="历史净值走势" />
+                            <DockPanel LastChildFill="False">
+                                <TextBlock
+                                    DockPanel.Dock="Left"
+                                    FontSize="17"
+                                    FontWeight="SemiBold"
+                                    Text="历史净值走势" />
+                                <StackPanel
+                                    DockPanel.Dock="Right"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                                    <TextBlock
+                                        Foreground="{DynamicResource SecondaryText}"
+                                        Margin="0,0,8,0"
+                                        Text="区间总涨跌幅" />
+                                    <TextBlock
+                                        FontSize="17"
+                                        FontWeight="Bold"
+                                        Foreground="{Binding SelectedFund.ChangeBrush}"
+                                        Text="{Binding SelectedFund.ChangeText}" />
+                                </StackPanel>
+                            </DockPanel>
                             <TextBlock
                                 Foreground="{DynamicResource SecondaryText}"
                                 Margin="0,3,0,8"
